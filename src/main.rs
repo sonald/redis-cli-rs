@@ -96,13 +96,23 @@ fn parse_redis_output(s: &str) -> (&str, RedisResult) {
     }
 }
 
-fn run(args: Opt) -> Result<(), Box<dyn Error>> {
-    let host = match args.hostname {
-        Some(ref s) => &s,
-        None => "127.0.0.1"
-    };
-    let mut cli = TcpStream::connect((host, 6379)).expect("connect failed");
+fn stream(args: &Vec<String>, cli: &mut TcpStream) -> Result<RedisResult, Box<dyn Error>> {
+    let mut cmd = args.join(" ");
+    cmd.push('\n');
+    cli.write(cmd.as_bytes())?;
 
+    let mut res = String::new();
+    loop {
+        let mut buf = [0u8; 32];
+        let n = cli.read(&mut buf[..])?;
+        res += &String::from_utf8_lossy(&buf[..n]);
+        if n < 32 { break }
+    }
+
+    Ok(parse_redis_output(&res).1)
+}
+
+fn interactive(cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
     let mut rl = Editor::<()>::new();
     loop {
         let readline = rl.readline(">> ");
@@ -135,6 +145,19 @@ fn run(args: Opt) -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+fn run(args: Opt) -> Result<(), Box<dyn Error>> {
+    let host = match args.hostname {
+        Some(ref s) => &s,
+        None => "127.0.0.1"
+    };
+    let mut cli = TcpStream::connect((host, 6379)).expect("connect failed");
+
+    match args.cmds.len() {
+        0 => interactive(&mut cli),
+        _ => stream(&args.cmds, &mut cli).map(|res| println!("{}", res))
+    }
 }
 
 fn main() {
