@@ -174,12 +174,13 @@ async fn stream(args: Vec<String>, cli: &mut TcpStream) -> Result<(), Box<dyn Er
     let value = RedisValue::from_vec(args);
     cli.write(value.to_wire()?.as_slice()).await?;
 
-    if cmd == "monitor" {
-        monitor(cli).await
-    } else {
-        let res = read_redis_output(cli).await?;
-        println!("{}", parse_redis_output(&res).1);
-        Ok(())
+    match cmd.as_str() {
+        "monitor" | "subscribe" => monitor(cli).await,
+        _ => {
+            let res = read_redis_output(cli).await?;
+            println!("{}", parse_redis_output(&res).1);
+            Ok(())
+        }
     }
 }
 
@@ -197,18 +198,18 @@ async fn interactive<S: AsRef<str>>(prompt: S, cli: &mut TcpStream) -> Result<()
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                let value = {
-                    let args = line.split_whitespace().map(|s| s.to_owned()).collect::<Vec<String>>();
-                    RedisValue::from_vec(args)
-                };
+                let args = line.split_whitespace().map(|s| s.to_owned()).collect::<Vec<String>>();
+                let cmd = args[0].clone();
+                let value = RedisValue::from_vec(args);
                 cli.write(value.to_wire()?.as_slice()).await?;
 
-                if line.trim_end() == "monitor" {
-                    monitor(cli).await?;
-                    continue;
+                match cmd.as_str() {
+                    "monitor" | "subscribe" => monitor(cli).await?,
+                    _ => {
+                        let res = read_redis_output(cli).await?;
+                        println!("{}", parse_redis_output(&res).1);
+                    }
                 }
-                let  res = read_redis_output(cli).await?;
-                println!("{}", parse_redis_output(&res).1);
             },
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
