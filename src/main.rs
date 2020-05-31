@@ -54,55 +54,54 @@ impl fmt::Display for RedisValue {
 
 impl RedisValue {
     fn from_vec(v: Vec<String>) -> RedisValue {
-        if v.len() == 0 {
-            RedisValue::Nil
-        } else {
-            let mut res = vec![];
-            for s in v {
-                res.push(RedisValue::Bulk(s.clone()));
-            }
-            RedisValue::Array(res)
+        match v.len() {
+            0 => RedisValue::Nil,
+            _ => RedisValue::Array(v.into_iter().map(RedisValue::Bulk).collect())
         }
     }
 
     fn to_wire(&self) -> Result<Vec<u8>, Box<dyn Error>> {
         use std::io::Write;
+        macro_rules! write_cmd {
+            ($res:ident, $e:expr) => (Write::write(&mut $res, $e)?);
+        }
 
         let mut res = vec![];
         match self {
             RedisValue::Str(s) => {
-                Write::write(&mut res, b"+")?;
-                Write::write(&mut res, s.as_bytes())?;
-                Write::write(&mut res, b"\r\n")?;
+                write_cmd!(res, b"+");
+                write_cmd!(res, b"+");
+                write_cmd!(res, s.as_bytes());
+                write_cmd!(res, b"\r\n");
             },
             RedisValue::Bulk(s) => {
-                Write::write(&mut res, b"$")?;
-                Write::write(&mut res, format!("{}", s.len()).as_bytes())?;
-                Write::write(&mut res, b"\r\n")?;
-                Write::write(&mut res, s.as_bytes())?;
-                Write::write(&mut res, b"\r\n")?;
+                write_cmd!(res, b"$");
+                write_cmd!(res, format!("{}", s.len()).as_bytes());
+                write_cmd!(res, b"\r\n");
+                write_cmd!(res, s.as_bytes());
+                write_cmd!(res, b"\r\n");
             },
             RedisValue::Int(i) => {
-                Write::write(&mut res, b":")?;
-                Write::write(&mut res, format!("{}", i).as_bytes())?;
-                Write::write(&mut res, b"\r\n")?;
+                write_cmd!(res, b":");
+                write_cmd!(res, format!("{}", i).as_bytes());
+                write_cmd!(res, b"\r\n");
             },
             RedisValue::Nil => {
-                Write::write(&mut res, b"$")?;
-                Write::write(&mut res, format!("{}", -1).as_bytes())?;
-                Write::write(&mut res, b"\r\n")?;
+                write_cmd!(res, b"$");
+                write_cmd!(res, format!("{}", -1).as_bytes());
+                write_cmd!(res, b"\r\n");
             },
             RedisValue::Error(s) => {
-                Write::write(&mut res, b"-")?;
-                Write::write(&mut res, s.as_bytes())?;
-                Write::write(&mut res, b"\r\n")?;
+                write_cmd!(res, b"-");
+                write_cmd!(res, s.as_bytes());
+                write_cmd!(res, b"\r\n");
             },
             RedisValue::Array(v) => {
-                Write::write(&mut res, b"*")?;
-                Write::write(&mut res, format!("{}", v.len()).as_bytes())?;
-                Write::write(&mut res, b"\r\n")?;
+                write_cmd!(res, b"*");
+                write_cmd!(res, format!("{}", v.len()).as_bytes());
+                write_cmd!(res, b"\r\n");
                 for d in v {
-                    Write::write(&mut res, &d.to_wire()?)?;
+                    write_cmd!(res, &d.to_wire()?);
                 }
             },
         }
@@ -116,6 +115,7 @@ fn parse_string(s: &str) -> (&str, &str) {
     (&s[i+2..], &s[..i])
 }
 
+//TODO: use one pass LA(1) parsing
 fn parse_redis_output(s: &str) -> (&str, RedisValue) {
     let tok = s.as_bytes()[0];
     let s = &s[1..];
