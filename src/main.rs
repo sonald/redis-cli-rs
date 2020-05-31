@@ -190,10 +190,10 @@ async fn monitor(cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
     }
 }
 
-async fn interactive(cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+async fn interactive<S: AsRef<str>>(prompt: S, cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
     let mut rl = Editor::<()>::new();
     loop {
-        let readline = rl.readline(">> ");
+        let readline = rl.readline(prompt.as_ref());
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
@@ -228,9 +228,10 @@ async fn interactive(cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
 
 async fn run(args: Opt) -> Result<(), Box<dyn Error>> {
     let mut cli = TcpStream::connect((args.hostname.as_str(), args.port)).await?;
+    let prompt = format!("{}:{}> ", args.hostname,args.port);
 
     match args.cmds.len() {
-        0 => interactive(&mut cli).await,
+        0 => interactive(prompt, &mut cli).await,
         _ => stream(args.cmds, &mut cli).await
     }
 }
