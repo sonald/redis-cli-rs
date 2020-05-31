@@ -13,8 +13,11 @@ struct Opt {
     #[structopt(short, long, default_value = "127.0.0.1")]
     pub hostname: String,
 
-    #[structopt(short, long, default_value = "6379")]
+    #[structopt(short("P"), long, default_value = "6379")]
     pub port: u16,
+
+    #[structopt(short, long)]
+    pub pipe: bool,
 
     pub cmds: Vec<String>,
 }
@@ -169,25 +172,35 @@ async fn read_redis_output(cli: &mut TcpStream) -> Result<String, Box<dyn Error>
     Ok(res)
 }
 
-async fn stream(args: Vec<String>, cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
-    let cmd = args[0].clone();
-    let value = RedisValue::from_vec(args);
-    cli.write(value.to_wire()?.as_slice()).await?;
+//TODO: incrementally displaying while reading and parsing
+async fn consume_all_output(cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+    let res = read_redis_output(cli).await?;
 
-    match cmd.as_str() {
-        "monitor" | "subscribe" => monitor(cli).await,
-        _ => {
-            let res = read_redis_output(cli).await?;
-            println!("{}", parse_redis_output(&res).1);
-            Ok(())
-        }
+    let mut s = res.as_str();
+    while s.len() > 0 {
+        let (left, value) = parse_redis_output(s);
+        println!("{}", value);
+        s = left;
     }
+
+    Ok(())
 }
 
-async fn monitor(cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
-    loop {
-        let res = read_redis_output(cli).await?;
-        println!("{}", parse_redis_output(&res).1);
+async fn stream(args: Vec<String>, pipe: bool, cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+    let cmd = args[0].clone();
+    let data = if pipe {
+        args.into_iter().map(|a| a + "\r\n").collect::<String>().into_bytes()
+    } else {
+        let value = RedisValue::from_vec(args);
+        value.to_wire()?
+    };
+    cli.write(data.as_slice()).await?;
+
+    match cmd.as_str() {
+        "monitor" | "subscribe" => loop {
+            consume_all_output(cli).await?
+        },
+        _ => consume_all_output(cli).await
     }
 }
 
@@ -204,7 +217,9 @@ async fn interactive<S: AsRef<str>>(prompt: S, cli: &mut TcpStream) -> Result<()
                 cli.write(value.to_wire()?.as_slice()).await?;
 
                 match cmd.as_str() {
-                    "monitor" | "subscribe" => monitor(cli).await?,
+                    "monitor" | "subscribe" => loop {
+                        consume_all_output(cli).await?
+                    },
                     _ => {
                         let res = read_redis_output(cli).await?;
                         println!("{}", parse_redis_output(&res).1);
@@ -231,9 +246,17 @@ async fn run(args: Opt) -> Result<(), Box<dyn Error>> {
     let mut cli = TcpStream::connect((args.hostname.as_str(), args.port)).await?;
     let prompt = format!("{}:{}> ", args.hostname,args.port);
 
-    match args.cmds.len() {
-        0 => interactive(prompt, &mut cli).await,
-        _ => stream(args.cmds, &mut cli).await
+    if args.cmds.len() == 0 && !args.pipe {
+        interactive(prompt, &mut cli).await
+    } else {
+        let cmds = if args.pipe {
+            let mut buf = String::new();
+            tokio::io::stdin().read_to_string(&mut buf).await?;
+            buf.split('\n').map(|s| s.to_owned()).collect::<Vec<String>>()
+        } else {
+            args.cmds
+        };
+        stream(cmds, args.pipe, &mut cli).await
     }
 }
 
