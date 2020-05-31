@@ -24,7 +24,7 @@ enum RedisValue {
     Str(String),
     Bulk(String),
     Array(Vec<RedisValue>),
-    Int(i32),
+    Int(i64),
     Nil,
     Error(String),
 }
@@ -33,7 +33,7 @@ impl fmt::Display for RedisValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             RedisValue::Str(s) => write!(f, "{}", s),
-            RedisValue::Bulk(s) => write!(f, "{}", s),
+            RedisValue::Bulk(s) => write!(f, "{:?}", s),
             RedisValue::Int(i) => write!(f, "(integer) {}", i),
             RedisValue::Nil => write!(f, "(nil)"),
             RedisValue::Error(s) => write!(f, "(error) {}", s),
@@ -53,7 +53,7 @@ impl fmt::Display for RedisValue {
 }
 
 impl RedisValue {
-    fn from_vec(v: &Vec<String>) -> RedisValue {
+    fn from_vec(v: Vec<String>) -> RedisValue {
         if v.len() == 0 {
             RedisValue::Nil
         } else {
@@ -139,7 +139,7 @@ fn parse_redis_output(s: &str) -> (&str, RedisValue) {
         },
         b':' => {
             let (s, buf) = parse_string(s);
-            (s, RedisValue::Int(buf.parse::<i32>().unwrap_or(0)))
+            (s, RedisValue::Int(buf.parse::<i64>().unwrap_or(0)))
         },
         b'*' => {
             let mut v = Vec::new();
@@ -169,11 +169,12 @@ async fn read_redis_output(cli: &mut TcpStream) -> Result<String, Box<dyn Error>
     Ok(res)
 }
 
-async fn stream(args: &Vec<String>, cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
-    let cmd = RedisValue::from_vec(args);
-    cli.write(cmd.to_wire()?.as_slice()).await?;
+async fn stream(args: Vec<String>, cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+    let cmd = args[0].clone();
+    let value = RedisValue::from_vec(args);
+    cli.write(value.to_wire()?.as_slice()).await?;
 
-    if args[0] == "monitor" {
+    if cmd == "monitor" {
         monitor(cli).await
     } else {
         let res = read_redis_output(cli).await?;
@@ -184,10 +185,8 @@ async fn stream(args: &Vec<String>, cli: &mut TcpStream) -> Result<(), Box<dyn E
 
 async fn monitor(cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
     loop {
-        let mut buf = vec![];
-        let n = cli.read_to_end(&mut buf).await?;
-        let res = String::from_utf8_lossy(&buf[..n]);
-        println!("---- {}", parse_redis_output(&res).1);
+        let res = read_redis_output(cli).await?;
+        println!("{}", parse_redis_output(&res).1);
     }
 }
 
@@ -198,7 +197,11 @@ async fn interactive(cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                cli.write(line.as_bytes()).await?;
+                let value = {
+                    let args = line.split_whitespace().map(|s| s.to_owned()).collect::<Vec<String>>();
+                    RedisValue::from_vec(args)
+                };
+                cli.write(value.to_wire()?.as_slice()).await?;
 
                 if line.trim_end() == "monitor" {
                     monitor(cli).await?;
@@ -228,7 +231,7 @@ async fn run(args: Opt) -> Result<(), Box<dyn Error>> {
 
     match args.cmds.len() {
         0 => interactive(&mut cli).await,
-        _ => stream(&args.cmds, &mut cli).await
+        _ => stream(args.cmds, &mut cli).await
     }
 }
 
