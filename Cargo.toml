@@ -1,5 +1,5 @@
 [package]
-name = "redis-cli-rs"
+name = "cedis"
 version = "0.1.0"
 authors = ["Sian Cao <yinshuiboy@gmail.com>"]
 edition = "2018"

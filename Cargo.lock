@@ -80,6 +80,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "404b1fe4f65288577753b17e3b36a04596ee784493ec249bf81c7f2d2acd751c"
 
 [[package]]
+name = "cedis"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "rustyline",
+ "signal-hook",
+ "structopt",
+ "tokio",
+]
+
+[[package]]
 name = "cfg-if"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -388,17 +399,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42934bc9c8ab0d3b273a16d8551c8f0fcff46be73276ca083ec2414c15c4ba5e"
 dependencies = [
  "proc-macro2",
-]
-
-[[package]]
-name = "redis-cli-rs"
-version = "0.1.0"
-dependencies = [
- "clap",
- "rustyline",
- "signal-hook",
- "structopt",
- "tokio",
 ]
 
 [[package]]
