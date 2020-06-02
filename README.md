@@ -1,3 +1,3 @@
-# r2edis
+# cedis
 
-r2edis (redis-cli) -- args
+a simple redis-cli replacement written in pure rust
