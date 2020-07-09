@@ -24,18 +24,18 @@ struct Opt {
     pub cmds: Vec<String>,
 }
 
-async fn read_redis_output(cli: &mut TcpStream) -> Result<String, Box<dyn Error>> {
-    let mut res = String::new();
+async fn read_redis_output(cli: &mut TcpStream) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut res = vec![];
+    let mut buf = [0u8; 64];
+
     loop {
-        let mut buf = [0u8; 32];
         let n = cli.read(&mut buf[..]).await?;
-        res += &String::from_utf8_lossy(&buf[..n]);
+        res.extend(&buf[..n]);
         if n < 32 { break }
     }
     Ok(res)
 }
 
-//TODO: incrementally displaying while reading and parsing
 async fn consume_all_output(cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
     let res = read_redis_output(cli).await?;
 
@@ -103,6 +103,7 @@ async fn interactive<S: AsRef<str>>(prompt: S, cli: &mut TcpStream) -> Result<()
     Ok(())
 }
 
+//TODO: add proxy mode
 async fn run(args: Opt) -> Result<(), Box<dyn Error>> {
     let mut cli = TcpStream::connect((args.hostname.as_str(), args.port)).await?;
     let prompt = format!("{}:{}> ", args.hostname,args.port);

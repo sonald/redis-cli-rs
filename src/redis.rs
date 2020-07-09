@@ -42,25 +42,25 @@ impl RedisValue {
         }
     }
 
-    pub fn deserialize<S: AsRef<str>>(s: S) -> Option<(RedisValue, usize)> {
+    pub fn deserialize(s: &[u8]) -> Option<(RedisValue, usize)> {
         if s.as_ref().len() == 0 {
             return None
         }
 
-        fn match_string(ts: &mut std::str::Bytes) -> String {
+        fn match_string<'a>(ts: &mut impl DoubleEndedIterator<Item = &'a u8>) -> String {
             let mut buf = vec![];
             while let Some(ch) = ts.next() {
-                if ch == b'\r' {
+                if *ch == b'\r' {
                     break
                 }
 
-                buf.push(ch);
+                buf.push(*ch);
             }
             ts.next(); // eat \n
             String::from_utf8_lossy(&buf).to_string()
         }
 
-        fn match_value(ts: &mut std::str::Bytes) -> Option<RedisValue> {
+        fn match_value<'a>(ts: &mut impl DoubleEndedIterator<Item = &'a u8>) -> Option<RedisValue> {
             if let Some(ch) = ts.next() {
                 match ch {
                     b'-' => {
@@ -77,7 +77,7 @@ impl RedisValue {
                             let mut buf = vec![];
                             while n > 0 {
                                 let ch = ts.next().expect("invlaid resp");
-                                buf.push(ch);
+                                buf.push(*ch);
                                 n -= 1;
                             }
 
@@ -107,7 +107,7 @@ impl RedisValue {
             }
         }
 
-        let mut ts = s.as_ref().bytes();
+        let mut ts = s.iter();
         match_value(&mut ts).map(|v| (v, s.as_ref().len() - ts.size_hint().0))
     }
 
