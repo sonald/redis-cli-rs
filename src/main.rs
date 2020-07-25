@@ -3,6 +3,8 @@ use tokio::prelude::*;
 use tokio::net::TcpStream;
 use rustyline::{Editor, error::ReadlineError};
 use std::error::Error;
+use log::*;
+use std::io::Write;
 
 mod redis;
 use self::redis::*;
@@ -24,7 +26,9 @@ struct Opt {
     pub cmds: Vec<String>,
 }
 
-async fn read_redis_output(cli: &mut TcpStream) -> Result<Vec<u8>, Box<dyn Error>> {
+type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+async fn read_redis_output(cli: &mut TcpStream) -> Result<Vec<u8>> {
     let mut res = vec![];
     let mut buf = [0u8; 64];
 
@@ -36,18 +40,18 @@ async fn read_redis_output(cli: &mut TcpStream) -> Result<Vec<u8>, Box<dyn Error
     Ok(res)
 }
 
-async fn consume_all_output(cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+async fn consume_all_output(cli: &mut TcpStream) -> Result<()> {
     let res = read_redis_output(cli).await?;
 
     let mut start = 0;
     while let Some((value, left)) = RedisValue::deserialize(&res[start..]) {
-        println!("{}", value);
+        info!("{}", value);
         start += left;
     }
     Ok(())
 }
 
-async fn stream(args: Vec<String>, pipe: bool, cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+async fn stream(args: Vec<String>, pipe: bool, cli: &mut TcpStream) -> Result<()> {
     let cmd = args[0].clone();
     let data = if pipe {
         args.into_iter().map(|a| a + "\r\n").collect::<String>().into_bytes()
@@ -65,7 +69,7 @@ async fn stream(args: Vec<String>, pipe: bool, cli: &mut TcpStream) -> Result<()
     }
 }
 
-async fn interactive<S: AsRef<str>>(prompt: S, cli: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+async fn interactive<S: AsRef<str>>(prompt: S, cli: &mut TcpStream) -> Result<()> {
     let mut rl = Editor::<()>::new();
     loop {
         let readline = rl.readline(prompt.as_ref());
@@ -83,16 +87,16 @@ async fn interactive<S: AsRef<str>>(prompt: S, cli: &mut TcpStream) -> Result<()
                     },
                     _ => {
                         let res = read_redis_output(cli).await?;
-                        println!("{}", RedisValue::deserialize(&res).expect("").0);
+                        print!("{}", RedisValue::deserialize(&res).expect("").0);
                     }
                 }
             },
             Err(ReadlineError::Interrupted) => {
-                println!("CTRL-C");
+                info!("CTRL-C");
                 break
             },
             Err(ReadlineError::Eof) => {
-                println!("CTRL-D");
+                info!("CTRL-D");
                 break
             },
             Err(err) => {
@@ -104,7 +108,7 @@ async fn interactive<S: AsRef<str>>(prompt: S, cli: &mut TcpStream) -> Result<()
 }
 
 //TODO: add proxy mode
-async fn run(args: Opt) -> Result<(), Box<dyn Error>> {
+async fn run(args: Opt) -> Result<()> {
     let mut cli = TcpStream::connect((args.hostname.as_str(), args.port)).await?;
     let prompt = format!("{}:{}> ", args.hostname,args.port);
 
@@ -131,10 +135,17 @@ async fn main() {
         }).expect("hook sigint failed");
     }
 
+    let start = std::time::Instant::now();
+    env_logger::builder().format(move |buf, log| {
+        let current = start.elapsed().as_secs_f32();
+        writeln!(buf, "{:.04} {} - {}", current, log.level(), log.args())
+    }).init();
+
     let args = Opt::from_args();
 
+    info!("start");
     if let Err(err) = run(args).await {
-        eprintln!("error: {}", err);
+        error!("error: {}", err);
     }
 }
  
