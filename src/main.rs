@@ -35,7 +35,7 @@ async fn read_redis_output(cli: &mut TcpStream) -> Result<Vec<u8>> {
     loop {
         let n = cli.read(&mut buf[..]).await?;
         res.extend(&buf[..n]);
-        if n < 32 { break }
+        if n < 64 { break }
     }
     Ok(res)
 }

@@ -1,5 +1,6 @@
 use std::fmt;
 use std::error::Error;
+use bytes::Bytes;
 
 #[derive(Debug)]
 pub enum RedisValue {
@@ -34,6 +35,23 @@ impl fmt::Display for RedisValue {
     }
 }
 
+#[derive(Debug)]
+pub enum Command {
+    Get(String),
+    Set(String, String),
+    Pipeline(Vec<Command>)
+}
+
+impl From<Command> for RedisValue {
+    fn from(cmd: Command) -> RedisValue {
+        match cmd {
+            Command::Get(key) => RedisValue::from_vec(vec![key]),
+            Command::Set(key, val) => RedisValue::from_vec(vec![key, val]),
+            _ => {unimplemented!();}
+        }
+    }
+}
+
 impl RedisValue {
     pub fn from_vec(v: Vec<String>) -> RedisValue {
         match v.len() {
@@ -42,6 +60,65 @@ impl RedisValue {
         }
     }
 
+    pub fn is_valid<S: AsRef<[u8]>>(s: S) -> bool {
+        if s.as_ref().len() == 0 { return false }
+
+        fn match_string<'a>(ts: &mut impl DoubleEndedIterator<Item = &'a u8>) -> bool {
+            ts.find(|&&c| c == '\n').is_some()
+        }
+
+        fn match_value<'a>(ts: &mut impl DoubleEndedIterator<Item = &'a u8>) -> bool {
+            if let Some(ch) = ts.next() {
+                match ch {
+                    b'-' => {
+                        match_string(ts)
+                    },
+                    b'+' => {
+                        match_string(ts)
+                    },
+                    b'$' => {
+                        let mut n = match_string(ts).parse::<i32>().unwrap_or(0);
+                        if n == -1 {
+                            Some(RedisValue::Nil)
+                        } else {
+                            let mut buf = vec![];
+                            while n > 0 {
+                                let ch = ts.next().expect("invlaid resp");
+                                buf.push(*ch);
+                                n -= 1;
+                            }
+
+                            ts.next();
+                            ts.next();
+
+                            Some(RedisValue::Bulk(String::from_utf8_lossy(&buf).to_string()))
+                        }
+                    },
+                    b':' => {
+                        Some(RedisValue::Int(match_string(ts).parse::<i64>().unwrap_or(0)))
+                    },
+                    b'*' => {
+                        let n = match_string(ts).parse::<usize>().unwrap_or(0);
+                        let res = (0..n).fold(vec![], |mut v, _| {
+                            let value = match_value(ts).expect("invalid resp");
+                            v.push(value);
+                            v
+                        });
+
+                        Some(RedisValue::Array(res))
+                    },
+                    _ => panic!("invalid redis resp"),
+                }
+            } else {
+                None
+            }
+        }
+
+        let mut ts = s.iter();
+        match_value(&mut ts).map(|v| (v, s.as_ref().len() - ts.size_hint().0))
+    }
+
+    /// deserialize a RedisValue from `s`, and return value with consumed bytes
     pub fn deserialize(s: &[u8]) -> Option<(RedisValue, usize)> {
         if s.as_ref().len() == 0 {
             return None
